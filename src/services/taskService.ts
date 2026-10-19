@@ -1,0 +1,297 @@
+import { supabase, isSupabaseConfigured } from '../config/supabase.js';
+import crypto from 'crypto';
+import { 
+  Task, 
+  TaskStatus, 
+  Attachment, 
+  TimelineEvent, 
+  TaskComment, 
+  CreateTaskDTO, 
+  UpdateStatusDTO, 
+  AddAttachmentDTO, 
+  AddCommentDTO 
+} from '../types/index.js';
+
+// Clean empty task store for production
+let inMemoryTasks: Task[] = [];
+
+export function clearInMemoryTasks(): void {
+  inMemoryTasks = [];
+}
+
+export async function getAllTasks(filters: { status?: string; student_id?: string } = {}): Promise<Task[]> {
+  const { status, student_id } = filters;
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      let query = supabase
+        .from('tasks')
+        .select(`
+          *,
+          attachments (*),
+          timeline_events (*),
+          comments:task_comments (*)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (status && status !== 'all') {
+        query = query.eq('status', status);
+      }
+      if (student_id) {
+        query = query.eq('student_id', student_id);
+      }
+
+      const { data, error } = await query;
+      if (!error && data) return data as Task[];
+      console.warn('⚠️ Supabase fetch error, fallback to memory:', error?.message);
+    } catch (err: any) {
+      console.warn('⚠️ Supabase error in getAllTasks:', err.message);
+    }
+  }
+
+  // Fallback
+  return inMemoryTasks.filter(task => {
+    if (status && status !== 'all' && task.status !== status) return false;
+    if (student_id && task.student_id !== student_id) return false;
+    return true;
+  });
+}
+
+export async function getTaskById(taskId: string): Promise<Task | null> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('tasks')
+        .select(`
+          *,
+          attachments (*),
+          timeline_events (*),
+          comments:task_comments (*)
+        `)
+        .eq('id', taskId)
+        .single();
+
+      if (!error && data) return data as Task;
+    } catch (err: any) {
+      console.warn('⚠️ Supabase error in getTaskById:', err.message);
+    }
+  }
+
+  return inMemoryTasks.find(t => t.id === taskId) || null;
+}
+
+export async function createTask(taskData: CreateTaskDTO): Promise<Task> {
+  const newId = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  const formattedTask: Task = {
+    id: newId,
+    title: taskData.title,
+    description: taskData.description || '',
+    subject: taskData.subject || 'General',
+    status: taskData.status || 'start',
+    student_id: taskData.student_id || 'student-1',
+    student_name: taskData.student_name || 'Mohona',
+    tutor_id: taskData.tutor_id || 'tutor-1',
+    tutor_name: taskData.tutor_name || 'Tutor Axis',
+    priority: taskData.priority || 'medium',
+    deadline: taskData.deadline || null,
+    created_at: now,
+    updated_at: now,
+    attachments: [],
+    timeline_events: [
+      {
+        id: crypto.randomUUID(),
+        task_id: newId,
+        from_status: null,
+        to_status: taskData.status || 'start',
+        actor_role: taskData.creator_role || 'student',
+        note: taskData.initial_note || 'Task created and added to timeline.',
+        created_at: now
+      }
+    ],
+    comments: []
+  };
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data: insertedTask, error: insertError } = await supabase
+        .from('tasks')
+        .insert([{
+          id: formattedTask.id,
+          title: formattedTask.title,
+          description: formattedTask.description,
+          subject: formattedTask.subject,
+          status: formattedTask.status,
+          student_id: formattedTask.student_id,
+          student_name: formattedTask.student_name,
+          tutor_id: formattedTask.tutor_id,
+          tutor_name: formattedTask.tutor_name,
+          priority: formattedTask.priority,
+          deadline: formattedTask.deadline,
+          created_at: formattedTask.created_at,
+          updated_at: formattedTask.updated_at
+        }])
+        .select()
+        .single();
+
+      if (!insertError && insertedTask) {
+        await supabase.from('timeline_events').insert([{
+          id: formattedTask.timeline_events![0].id,
+          task_id: formattedTask.id,
+          from_status: null,
+          to_status: formattedTask.status,
+          actor_role: formattedTask.timeline_events![0].actor_role,
+          note: formattedTask.timeline_events![0].note,
+          created_at: now
+        }]);
+
+        return { ...insertedTask, attachments: [], timeline_events: formattedTask.timeline_events, comments: [] } as Task;
+      }
+    } catch (err: any) {
+      console.warn('⚠️ Supabase error in createTask:', err.message);
+    }
+  }
+
+  inMemoryTasks.unshift(formattedTask);
+  return formattedTask;
+}
+
+export async function updateTaskStatus(
+  taskId: string, 
+  { newStatus, actorRole = 'student', note = '' }: UpdateStatusDTO
+): Promise<Task> {
+  const validStatuses: TaskStatus[] = ['start', 'ongoing', 'update raised', 'done'];
+  if (!validStatuses.includes(newStatus)) {
+    throw new Error(`Invalid status: ${newStatus}. Must be one of: ${validStatuses.join(', ')}`);
+  }
+
+  const now = new Date().toISOString();
+  const timelineEvent: TimelineEvent = {
+    id: crypto.randomUUID(),
+    task_id: taskId,
+    from_status: null,
+    to_status: newStatus,
+    actor_role: actorRole,
+    note: note || `Status transitioned to ${newStatus} by ${actorRole}`,
+    created_at: now
+  };
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data: currentTask } = await supabase
+        .from('tasks')
+        .select('status')
+        .eq('id', taskId)
+        .single();
+
+      timelineEvent.from_status = (currentTask?.status as TaskStatus) || null;
+
+      const { error: updateError } = await supabase
+        .from('tasks')
+        .update({ status: newStatus, updated_at: now })
+        .eq('id', taskId)
+        .select()
+        .single();
+
+      if (!updateError) {
+        await supabase.from('timeline_events').insert([timelineEvent]);
+        const task = await getTaskById(taskId);
+        if (task) return task;
+      }
+    } catch (err: any) {
+      console.warn('⚠️ Supabase error in updateTaskStatus:', err.message);
+    }
+  }
+
+  const taskIndex = inMemoryTasks.findIndex(t => t.id === taskId);
+  if (taskIndex === -1) throw new Error('Task not found');
+
+  timelineEvent.from_status = inMemoryTasks[taskIndex].status;
+  inMemoryTasks[taskIndex].status = newStatus;
+  inMemoryTasks[taskIndex].updated_at = now;
+  if (!inMemoryTasks[taskIndex].timeline_events) {
+    inMemoryTasks[taskIndex].timeline_events = [];
+  }
+  inMemoryTasks[taskIndex].timeline_events!.push(timelineEvent);
+
+  return inMemoryTasks[taskIndex];
+}
+
+export async function addAttachment(
+  taskId: string, 
+  { type, content, fileUrl, fileName, uploaderRole = 'student' }: AddAttachmentDTO
+): Promise<Attachment> {
+  const now = new Date().toISOString();
+  const attachment: Attachment = {
+    id: crypto.randomUUID(),
+    task_id: taskId,
+    type,
+    content: content || '',
+    file_url: fileUrl || null,
+    file_name: fileName || null,
+    uploader_role: uploaderRole,
+    created_at: now
+  };
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('attachments')
+        .insert([attachment])
+        .select()
+        .single();
+
+      if (!error && data) {
+        return data as Attachment;
+      }
+    } catch (err: any) {
+      console.warn('⚠️ Supabase error in addAttachment:', err.message);
+    }
+  }
+
+  const task = inMemoryTasks.find(t => t.id === taskId);
+  if (task) {
+    if (!task.attachments) task.attachments = [];
+    task.attachments.push(attachment);
+    task.updated_at = now;
+  }
+  return attachment;
+}
+
+export async function addComment(
+  taskId: string, 
+  { authorRole = 'student', authorName, message }: AddCommentDTO
+): Promise<TaskComment> {
+  const now = new Date().toISOString();
+  const comment: TaskComment = {
+    id: crypto.randomUUID(),
+    task_id: taskId,
+    author_role: authorRole,
+    author_name: authorName || (authorRole === 'tutor' ? 'Tutor Axis' : 'Mohona'),
+    message,
+    created_at: now
+  };
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('task_comments')
+        .insert([comment])
+        .select()
+        .single();
+
+      if (!error && data) return data as TaskComment;
+    } catch (err: any) {
+      console.warn('⚠️ Supabase error in addComment:', err.message);
+    }
+  }
+
+  const task = inMemoryTasks.find(t => t.id === taskId);
+  if (task) {
+    if (!task.comments) task.comments = [];
+    task.comments.push(comment);
+    task.updated_at = now;
+  }
+  return comment;
+}
