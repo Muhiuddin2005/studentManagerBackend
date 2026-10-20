@@ -30,6 +30,16 @@ app.use(express.urlencoded({ extended: true }));
 const uploadsDir = path.resolve(__dirname, '../uploads');
 app.use('/uploads', express.static(uploadsDir));
 
+// Root status endpoint
+app.get('/', (_req: Request, res: Response) => {
+  res.json({
+    name: 'Home Tutor Task & Routine API',
+    status: 'online',
+    health: '/api/health',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Health check endpoint
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({
