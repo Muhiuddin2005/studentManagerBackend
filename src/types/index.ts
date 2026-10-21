@@ -112,13 +112,11 @@ export interface VerifyEmailDTO {
 }
 
 export interface LoginDTO {
-  email?: string;
+  email: string;
   password: string;
 }
 
-export interface PasswordOnlyLoginDTO {
-  password: string;
-}
+export type PasswordOnlyLoginDTO = LoginDTO;
 
 export interface VerifyLoginOtpDTO {
   email: string;

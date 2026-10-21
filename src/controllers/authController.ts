@@ -34,13 +34,13 @@ export async function verifyEmail(req: Request, res: Response): Promise<void> {
 
 export async function login(req: Request, res: Response): Promise<void> {
   try {
-    const { password, email } = req.body;
-    if (!password) {
-      res.status(400).json({ success: false, message: 'Password is required to log in.' });
+    const { email, password } = req.body;
+    if (!email || !password) {
+      res.status(400).json({ success: false, message: 'Email and password are both required to log in.' });
       return;
     }
 
-    const result = await authService.loginWithPassword({ password, email });
+    const result = await authService.loginWithPassword({ email, password });
     res.status(200).json(result);
   } catch (err: any) {
     res.status(401).json({ success: false, message: err.message || 'Login failed' });

@@ -259,69 +259,47 @@ export async function verifyEmailAndRegister(dto: VerifyEmailDTO): Promise<AuthR
 }
 
 /**
- * Log In with only password:
- * Finds user with matching password, sends 6-digit OTP code to user's email via Nodemailer
+ * Log In with Email and Password:
+ * Matches user by email AND password in the database, sends 6-digit OTP code to user's email via Nodemailer
  */
-export async function loginWithPassword(dto: PasswordOnlyLoginDTO | LoginDTO): Promise<AuthResponseDTO> {
+export async function loginWithPassword(dto: LoginDTO): Promise<AuthResponseDTO> {
   const password = dto.password?.trim();
-  let emailInput = ('email' in dto && dto.email) ? dto.email.trim().toLowerCase() : undefined;
+  let emailInput = dto.email ? dto.email.trim().toLowerCase() : '';
   if (emailInput && emailInput.endsWith('-tutor')) {
     emailInput = emailInput.replace(/-tutor$/, '').trim();
   }
 
-  if (!password) {
-    throw new Error('Password is required to log in.');
+  if (!emailInput || !password) {
+    throw new Error('Both email address and password are required to log in.');
   }
 
   let user: AppUser | null = null;
 
-  // 1. If email is provided, match by email AND password
-  if (emailInput) {
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const { data, error } = await supabase
-          .from('app_users')
-          .select('*')
-          .eq('email', emailInput)
-          .eq('password', password)
-          .single();
+  // Match strictly by email AND password in Supabase database
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('app_users')
+        .select('*')
+        .eq('email', emailInput)
+        .eq('password', password)
+        .single();
 
-        if (!error && data) {
-          user = data as AppUser;
-        }
-      } catch (err: any) {
-        console.warn('⚠️ Supabase login query error:', err.message);
+      if (!error && data) {
+        user = data as AppUser;
       }
-    }
-    if (!user) {
-      user = inMemoryUsers.find(u => u.email === emailInput && u.password === password) || null;
-    }
-  } else {
-    // 2. ONLY PASSWORD provided (as requested by user!)
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const { data, error } = await supabase
-          .from('app_users')
-          .select('*')
-          .eq('password', password)
-          .limit(1)
-          .single();
-
-        if (!error && data) {
-          user = data as AppUser;
-        }
-      } catch (err: any) {
-        console.warn('⚠️ Supabase password lookup error:', err.message);
-      }
-    }
-
-    if (!user) {
-      user = inMemoryUsers.find(u => u.password === password) || null;
+    } catch (err: any) {
+      console.warn('⚠️ Supabase login query error:', err.message);
     }
   }
 
+  // Fallback in-memory user store
   if (!user) {
-    throw new Error('Invalid password. No matching user account found. Please check your password or register.');
+    user = inMemoryUsers.find(u => u.email === emailInput && u.password === password) || null;
+  }
+
+  if (!user) {
+    throw new Error('Invalid email or password. Please verify your credentials or register.');
   }
 
   // 3. Generate 6-digit OTP code with 10-minute expiry for email verification
