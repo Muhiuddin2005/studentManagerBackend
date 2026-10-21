@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { supabase, isSupabaseConfigured } from '../config/supabase.js';
-import { sendResendVerificationCode } from './resendService.js';
+import { sendVerificationCodeEmail } from './emailService.js';
 import { signJwt } from './jwtService.js';
 import { 
   AppUser, 
@@ -39,9 +39,9 @@ function generate6DigitCode(): string {
 
 /**
  * Step 1: Initiate Registration with email and password
- * Sends 6-digit code via Resend
+ * Sends 6-digit code via Nodemailer
  */
-export async function initiateRegistration(dto: RegisterDTO): Promise<{ success: boolean; message: string; devCode?: string }> {
+export async function initiateRegistration(dto: RegisterDTO): Promise<{ success: boolean; message: string }> {
   const rawEmail = dto.email.trim().toLowerCase();
   const name = dto.name.trim();
   const password = dto.password; // Without hashing as requested
@@ -151,13 +151,12 @@ export async function initiateRegistration(dto: RegisterDTO): Promise<{ success:
     type: 'register'
   });
 
-  // 4. Send email via Resend
-  const mailResult = await sendResendVerificationCode(email, code, name, 'register');
+  // 4. Send email via Nodemailer
+  await sendVerificationCodeEmail(email, code, name, 'register');
 
   return {
     success: true,
-    message: `Verification code sent to ${email}`,
-    devCode: mailResult.previewCode
+    message: `Verification code sent to ${email}`
   };
 }
 
@@ -261,7 +260,7 @@ export async function verifyEmailAndRegister(dto: VerifyEmailDTO): Promise<AuthR
 
 /**
  * Log In with only password:
- * Finds user with matching password, sends 6-digit OTP code to user's email via Resend
+ * Finds user with matching password, sends 6-digit OTP code to user's email via Nodemailer
  */
 export async function loginWithPassword(dto: PasswordOnlyLoginDTO | LoginDTO): Promise<AuthResponseDTO> {
   const password = dto.password?.trim();
@@ -357,16 +356,15 @@ export async function loginWithPassword(dto: PasswordOnlyLoginDTO | LoginDTO): P
     type: 'login'
   });
 
-  // 4. Send login verification email via Resend with our custom designed template
-  const mailResult = await sendResendVerificationCode(user.email, code, user.name, 'login');
+  // 4. Send login verification email via Nodemailer
+  await sendVerificationCodeEmail(user.email, code, user.name, 'login');
 
   return {
     success: true,
     step: 'verify_otp',
     email: user.email,
     maskedEmail: maskEmail(user.email),
-    message: `A 6-digit verification code has been dispatched to ${maskEmail(user.email)}. Enter the code to complete your login.`,
-    devCode: mailResult.previewCode
+    message: `A 6-digit verification code has been dispatched to ${maskEmail(user.email)}. Enter the code to complete your login.`
   };
 }
 
@@ -468,9 +466,9 @@ export async function verifyLoginOtp(dto: VerifyLoginOtpDTO): Promise<AuthRespon
 }
 
 /**
- * Resends a fresh 6-digit verification code via Resend
+ * Resends a fresh 6-digit verification code via Nodemailer
  */
-export async function resendVerificationCode(email: string, type: 'login' | 'register' = 'login'): Promise<{ success: boolean; message: string; devCode?: string }> {
+export async function resendVerificationCode(email: string, type: 'login' | 'register' = 'login'): Promise<{ success: boolean; message: string }> {
   let normalizedEmail = email.trim().toLowerCase();
   if (normalizedEmail.endsWith('-tutor')) {
     normalizedEmail = normalizedEmail.replace(/-tutor$/, '').trim();
@@ -508,12 +506,11 @@ export async function resendVerificationCode(email: string, type: 'login' | 'reg
     type
   });
 
-  const mailResult = await sendResendVerificationCode(normalizedEmail, code, name, type);
+  await sendVerificationCodeEmail(normalizedEmail, code, name, type);
 
   return {
     success: true,
-    message: `A fresh verification code has been dispatched to ${maskEmail(normalizedEmail)}`,
-    devCode: mailResult.previewCode
+    message: `A fresh verification code has been dispatched to ${maskEmail(normalizedEmail)}`
   };
 }
 

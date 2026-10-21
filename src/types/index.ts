@@ -133,7 +133,6 @@ export interface AuthResponseDTO {
   step?: 'completed' | 'verify_otp';
   email?: string;
   maskedEmail?: string;
-  devCode?: string;
 }
 
 export interface VerificationCodeRecord {
