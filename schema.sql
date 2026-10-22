@@ -100,7 +100,33 @@ CREATE TABLE IF NOT EXISTS weekly_routines (
 
 CREATE INDEX IF NOT EXISTS idx_weekly_routines_day ON weekly_routines(day);
 
--- 10. Disable RLS for unrestricted backend API access
+-- 10. Teacher-Student Pairs / Tuples Table (Binds Student & Tutor Emails)
+CREATE TABLE IF NOT EXISTS tutor_student_pairs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tutor_id VARCHAR(100),
+    tutor_email VARCHAR(255) NOT NULL,
+    tutor_name VARCHAR(100) NOT NULL,
+    student_id VARCHAR(100),
+    student_email VARCHAR(255) NOT NULL,
+    student_name VARCHAR(100) NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
+    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()),
+    UNIQUE(tutor_email, student_email)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pairs_tutor_email ON tutor_student_pairs(tutor_email);
+CREATE INDEX IF NOT EXISTS idx_pairs_student_email ON tutor_student_pairs(student_email);
+CREATE INDEX IF NOT EXISTS idx_pairs_status ON tutor_student_pairs(status);
+
+-- 11. Foreign Key Reference to Tuple in Tasks & Weekly Routines
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tuple_id UUID REFERENCES tutor_student_pairs(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_tasks_tuple_id ON tasks(tuple_id);
+
+ALTER TABLE weekly_routines ADD COLUMN IF NOT EXISTS tuple_id UUID REFERENCES tutor_student_pairs(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_weekly_routines_tuple_id ON weekly_routines(tuple_id);
+
+-- 12. Disable RLS for unrestricted backend API access
 ALTER TABLE tasks DISABLE ROW LEVEL SECURITY;
 ALTER TABLE attachments DISABLE ROW LEVEL SECURITY;
 ALTER TABLE timeline_events DISABLE ROW LEVEL SECURITY;
@@ -108,4 +134,6 @@ ALTER TABLE task_comments DISABLE ROW LEVEL SECURITY;
 ALTER TABLE app_users DISABLE ROW LEVEL SECURITY;
 ALTER TABLE email_verification_codes DISABLE ROW LEVEL SECURITY;
 ALTER TABLE weekly_routines DISABLE ROW LEVEL SECURITY;
+ALTER TABLE tutor_student_pairs DISABLE ROW LEVEL SECURITY;
+
 

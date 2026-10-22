@@ -35,6 +35,7 @@ export interface TaskComment {
 
 export interface Task {
   id: string;
+  tuple_id?: string | null;
   title: string;
   description: string;
   subject: string;
@@ -54,6 +55,7 @@ export interface Task {
 
 export interface CreateTaskDTO {
   title: string;
+  tuple_id?: string | null;
   description?: string;
   subject?: string;
   priority?: Priority;
@@ -148,6 +150,7 @@ export type DayOfWeek = 'Saturday' | 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesda
 
 export interface RoutineItem {
   id: string;
+  tuple_id?: string | null;
   day: DayOfWeek;
   subject: string;
   time_slot: string;
@@ -160,6 +163,7 @@ export interface RoutineItem {
 
 export interface CreateRoutineDTO {
   day: DayOfWeek;
+  tuple_id?: string | null;
   subject: string;
   time_slot?: string;
   topic?: string;
@@ -167,5 +171,47 @@ export interface CreateRoutineDTO {
   creator_role: Role;
   creator_name?: string;
 }
+
+// Teacher-Student Tuple / Pairing Types
+export type TupleStatus = 'pending' | 'accepted' | 'rejected';
+
+export interface TutorStudentPair {
+  id: string;
+  tutor_id: string;
+  tutor_email: string;
+  tutor_name: string;
+  student_id: string;
+  student_email: string;
+  student_name: string;
+  status: TupleStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeacherProfile {
+  id: string;
+  name: string;
+  email: string;
+  role: 'tutor';
+  connectionStatus: 'none' | 'pending' | 'accepted' | 'rejected';
+  pairId?: string;
+  pair?: TutorStudentPair;
+}
+
+export interface RequestConnectionDTO {
+  tutor_email: string;
+  tutor_name?: string;
+  tutor_id?: string;
+  student_email: string;
+  student_name: string;
+  student_id?: string;
+}
+
+export interface RespondConnectionDTO {
+  tuple_id: string;
+  status: 'accepted' | 'rejected';
+  actor_email?: string;
+}
+
 
 

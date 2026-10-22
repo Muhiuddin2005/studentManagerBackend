@@ -206,6 +206,7 @@ export interface TaskChangeNotificationPayload {
   tutorId?: string;
   tutorName?: string;
   tutorEmail?: string;
+  tupleId?: string | null;
 }
 
 /**
@@ -225,7 +226,31 @@ export async function getTargetRecipientEmails(payload: TaskChangeNotificationPa
     recipients.add(payload.studentEmail.trim().toLowerCase());
   }
 
-  // 2. Query Supabase app_users for corresponding recipient
+  // 2. Bound Teacher-Student Tuple Check (Highest Precision)
+  if (payload.tupleId) {
+    try {
+      const { supabase, isSupabaseConfigured } = await import('../config/supabase.js');
+      if (isSupabaseConfigured && supabase) {
+        const { data: pair } = await supabase
+          .from('tutor_student_pairs')
+          .select('*')
+          .eq('id', payload.tupleId)
+          .single();
+
+        if (pair) {
+          if (targetRole === 'tutor' && pair.tutor_email) {
+            recipients.add(pair.tutor_email.trim().toLowerCase());
+          } else if (targetRole === 'student' && pair.student_email) {
+            recipients.add(pair.student_email.trim().toLowerCase());
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('⚠️ [Target Recipient] Tuple pair lookup notice:', err.message);
+    }
+  }
+
+  // 3. Query Supabase app_users for corresponding recipient
   try {
     const { supabase, isSupabaseConfigured } = await import('../config/supabase.js');
     if (isSupabaseConfigured && supabase) {
@@ -488,3 +513,182 @@ export async function sendTaskChangeNotificationEmail(
     console.error('⚠️  [Nodemailer Error] Failed to send task notification email:', err.message);
   }
 }
+
+/**
+ * Sends a notification email to Teacher when a student requests a connection/group
+ */
+export async function sendTupleRequestEmail(params: {
+  tutorName: string;
+  tutorEmail: string;
+  studentName: string;
+  studentEmail: string;
+}): Promise<void> {
+  const { tutorName, tutorEmail, studentName, studentEmail } = params;
+  if (!tutorEmail || !tutorEmail.includes('@')) return;
+
+  const mailer = getTransporter();
+  const user = process.env.SMTP_USER;
+  const fromAddress = process.env.SMTP_FROM || (user ? `"TutorFlow" <${user}>` : '"TutorFlow" <noreply@tutorflow.com>');
+  const frontendUrl = process.env.FRONTEND_URL || 'https://muhiuddin-student-manager.vercel.app';
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>New Student Connection Request</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F4F5F9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #F4F5F9; padding: 35px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 520px; background-color: #FFFFFF; border-radius: 24px; overflow: hidden; border: 1px solid #E2E6F0; box-shadow: 0 10px 30px rgba(111, 101, 241, 0.06);" cellspacing="0" cellpadding="0">
+          <tr>
+            <td style="background: linear-gradient(135deg, #6F65F1 0%, #8F85FF 100%); padding: 30px 25px; text-align: center;">
+              <div style="display: inline-block; background: rgba(255, 255, 255, 0.2); border-radius: 50%; width: 44px; height: 44px; line-height: 44px; font-size: 22px; margin-bottom: 10px;">
+                🎓
+              </div>
+              <h1 style="color: #FFFFFF; font-size: 22px; font-weight: 800; margin: 0;">New Student Request</h1>
+              <p style="color: #E0E2FF; font-size: 13px; margin: 4px 0 0 0;">TutorFlow Connection Pairing</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 30px 28px;">
+              <div style="display: inline-block; background-color: #EEF0FD; color: #6F65F1; border: 1px solid #DCE0FA; padding: 5px 14px; border-radius: 999px; font-size: 12px; font-weight: 800; margin-bottom: 18px;">
+                👥 Pair Request
+              </div>
+              <h2 style="font-size: 18px; font-weight: 800; color: #1D2132; margin: 0 0 12px 0;">
+                Hello, Teacher ${tutorName || 'Tutor'}!
+              </h2>
+              <p style="font-size: 14px; color: #5C6478; line-height: 1.6; margin: 0 0 20px 0;">
+                Student <strong>${studentName}</strong> (<em>${studentEmail}</em>) has requested to connect with you on TutorFlow to create a shared learning group.
+              </p>
+              <div style="background-color: #FAFBFD; border: 1px solid #ECEFF6; border-radius: 14px; padding: 16px; margin-bottom: 24px;">
+                <div style="font-size: 13px; color: #7A8297;">Student Name: <strong style="color: #1D2132;">${studentName}</strong></div>
+                <div style="font-size: 13px; color: #7A8297; margin-top: 6px;">Student Email: <strong style="color: #1D2132;">${studentEmail}</strong></div>
+                <div style="font-size: 13px; color: #7A8297; margin-top: 6px;">Status: <span style="color: #F59E0B; font-weight: 700;">Pending Your Acceptance</span></div>
+              </div>
+              <div style="text-align: center; margin: 26px 0 10px 0;">
+                <a href="${frontendUrl}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #6F65F1 0%, #8F85FF 100%); color: #FFFFFF; text-decoration: none; font-size: 14px; font-weight: 700; padding: 12px 28px; border-radius: 12px; box-shadow: 0 4px 12px rgba(111, 101, 241, 0.25);">
+                  Review & Accept Request →
+                </a>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #F8F9FD; padding: 16px 25px; text-align: center; border-top: 1px solid #ECEFF6;">
+              <p style="margin: 0; font-size: 11px; color: #9FA6BA;">
+                Log into TutorFlow to accept or decline student connection requests.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+
+  try {
+    await mailer.sendMail({
+      from: fromAddress,
+      to: tutorEmail,
+      subject: `[TutorFlow] 🎓 Student Connection Request from ${studentName}`,
+      text: `Hello ${tutorName}, Student ${studentName} (${studentEmail}) has requested to connect with you on TutorFlow. Log into your dashboard to review and accept.`,
+      html
+    });
+    console.log(`✉️  [Nodemailer] Dispatched tuple request email to tutor [${tutorEmail}]`);
+  } catch (err: any) {
+    console.error('⚠️  [Nodemailer Error] Failed to send tuple request email:', err.message);
+  }
+}
+
+/**
+ * Sends a notification email to Student when a Teacher accepts or rejects their connection request
+ */
+export async function sendTupleResponseEmail(params: {
+  studentName: string;
+  studentEmail: string;
+  tutorName: string;
+  tutorEmail: string;
+  status: 'accepted' | 'rejected';
+}): Promise<void> {
+  const { studentName, studentEmail, tutorName, status } = params;
+  if (!studentEmail || !studentEmail.includes('@')) return;
+
+  const mailer = getTransporter();
+  const user = process.env.SMTP_USER;
+  const fromAddress = process.env.SMTP_FROM || (user ? `"TutorFlow" <${user}>` : '"TutorFlow" <noreply@tutorflow.com>');
+  const frontendUrl = process.env.FRONTEND_URL || 'https://muhiuddin-student-manager.vercel.app';
+  const isAccepted = status === 'accepted';
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Connection Request Update</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F4F5F9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #F4F5F9; padding: 35px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 520px; background-color: #FFFFFF; border-radius: 24px; overflow: hidden; border: 1px solid #E2E6F0; box-shadow: 0 10px 30px rgba(111, 101, 241, 0.06);" cellspacing="0" cellpadding="0">
+          <tr>
+            <td style="background: linear-gradient(135deg, ${isAccepted ? '#10B981, #059669' : '#EF4444, #DC2626'}); padding: 30px 25px; text-align: center;">
+              <div style="display: inline-block; background: rgba(255, 255, 255, 0.2); border-radius: 50%; width: 44px; height: 44px; line-height: 44px; font-size: 22px; margin-bottom: 10px;">
+                ${isAccepted ? '🎉' : 'ℹ️'}
+              </div>
+              <h1 style="color: #FFFFFF; font-size: 22px; font-weight: 800; margin: 0;">
+                ${isAccepted ? 'Connection Accepted!' : 'Request Update'}
+              </h1>
+              <p style="color: #FFFFFFDD; font-size: 13px; margin: 4px 0 0 0;">Teacher Pairing Status</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 30px 28px;">
+              <h2 style="font-size: 18px; font-weight: 800; color: #1D2132; margin: 0 0 12px 0;">
+                Hello, ${studentName}!
+              </h2>
+              <p style="font-size: 14px; color: #5C6478; line-height: 1.6; margin: 0 0 20px 0;">
+                ${isAccepted
+                  ? `Great news! Teacher <strong>${tutorName}</strong> has accepted your request. Your shared study timeline, tasks, and weekly routine are now active and synchronized.`
+                  : `Teacher <strong>${tutorName}</strong> was unable to accept your connection request at this time. You can choose another tutor from the Teacher list.`}
+              </p>
+              <div style="text-align: center; margin: 26px 0 10px 0;">
+                <a href="${frontendUrl}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #6F65F1 0%, #8F85FF 100%); color: #FFFFFF; text-decoration: none; font-size: 14px; font-weight: 700; padding: 12px 28px; border-radius: 12px; box-shadow: 0 4px 12px rgba(111, 101, 241, 0.25);">
+                  ${isAccepted ? 'Open Your Shared Dashboard →' : 'Browse Other Teachers →'}
+                </a>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #F8F9FD; padding: 16px 25px; text-align: center; border-top: 1px solid #ECEFF6;">
+              <p style="margin: 0; font-size: 11px; color: #9FA6BA;">
+                TutorFlow Home Tutor & Student Timeline Hub
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+
+  try {
+    await mailer.sendMail({
+      from: fromAddress,
+      to: studentEmail,
+      subject: `[TutorFlow] ${isAccepted ? '🎉 Connection Accepted by' : 'Notice from'} Teacher ${tutorName}`,
+      text: `Hello ${studentName}, Teacher ${tutorName} has ${status} your connection request on TutorFlow. Log into your dashboard to proceed.`,
+      html
+    });
+    console.log(`✉️  [Nodemailer] Dispatched tuple response email to student [${studentEmail}] (${status})`);
+  } catch (err: any) {
+    console.error('⚠️  [Nodemailer Error] Failed to send tuple response email:', err.message);
+  }
+}
+

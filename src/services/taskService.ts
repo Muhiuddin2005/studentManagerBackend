@@ -19,8 +19,8 @@ export function clearInMemoryTasks(): void {
   inMemoryTasks = [];
 }
 
-export async function getAllTasks(filters: { status?: string; student_id?: string } = {}): Promise<Task[]> {
-  const { status, student_id } = filters;
+export async function getAllTasks(filters: { status?: string; student_id?: string; tuple_id?: string } = {}): Promise<Task[]> {
+  const { status, student_id, tuple_id } = filters;
 
   if (isSupabaseConfigured && supabase) {
     try {
@@ -40,6 +40,9 @@ export async function getAllTasks(filters: { status?: string; student_id?: strin
       if (student_id) {
         query = query.eq('student_id', student_id);
       }
+      if (tuple_id) {
+        query = query.eq('tuple_id', tuple_id);
+      }
 
       const { data, error } = await query;
       if (!error && data) return data as Task[];
@@ -53,6 +56,7 @@ export async function getAllTasks(filters: { status?: string; student_id?: strin
   return inMemoryTasks.filter(task => {
     if (status && status !== 'all' && task.status !== status) return false;
     if (student_id && task.student_id !== student_id) return false;
+    if (tuple_id && task.tuple_id !== tuple_id) return false;
     return true;
   });
 }
@@ -86,6 +90,7 @@ export async function createTask(taskData: CreateTaskDTO): Promise<Task> {
 
   const formattedTask: Task = {
     id: newId,
+    tuple_id: taskData.tuple_id || null,
     title: taskData.title,
     description: taskData.description || '',
     subject: taskData.subject || 'General',
@@ -119,6 +124,7 @@ export async function createTask(taskData: CreateTaskDTO): Promise<Task> {
         .from('tasks')
         .insert([{
           id: formattedTask.id,
+          tuple_id: formattedTask.tuple_id,
           title: formattedTask.title,
           description: formattedTask.description,
           subject: formattedTask.subject,

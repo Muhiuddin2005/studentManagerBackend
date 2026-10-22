@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import taskRoutes from './routes/taskRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import routineRoutes from './routes/routineRoutes.js';
+import tupleRoutes from './routes/tupleRoutes.js';
 import { supabase, isSupabaseConfigured } from './config/supabase.js';
 import { ensureBucketPublic } from './services/storageService.js';
 
@@ -22,7 +23,19 @@ app.use(cors({
   origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'X-User-Role',
+    'x-user-role',
+    'X-User-Email',
+    'x-user-email',
+    'X-Actor-Role',
+    'x-actor-role'
+  ]
 }));
 
 app.use(express.json());
@@ -71,6 +84,9 @@ app.use('/api/tasks', taskRoutes);
 
 // 7-Day Weekly Routine API (Student can create, only tutor can delete)
 app.use('/api/routines', routineRoutes);
+
+// Teacher-Student Tuple & Pairing API
+app.use('/api/tuples', tupleRoutes);
 
 // Admin / Production Database Reset Endpoint
 app.post('/api/admin/clear-database', async (_req: Request, res: Response) => {

@@ -19,12 +19,14 @@ const DAY_ORDER: Record<DayOfWeek, number> = {
   Friday: 6
 };
 
-export async function getAllRoutines(): Promise<RoutineItem[]> {
+export async function getAllRoutines(tuple_id?: string): Promise<RoutineItem[]> {
   if (isSupabaseConfigured && supabase) {
     try {
-      const { data, error } = await supabase
-        .from('weekly_routines')
-        .select('*');
+      let query = supabase.from('weekly_routines').select('*');
+      if (tuple_id) {
+        query = query.eq('tuple_id', tuple_id);
+      }
+      const { data, error } = await query;
 
       if (!error && data) {
         return (data as RoutineItem[]).sort((a, b) => {
@@ -38,7 +40,12 @@ export async function getAllRoutines(): Promise<RoutineItem[]> {
     }
   }
 
-  return [...inMemoryRoutines].sort((a, b) => {
+  let list = inMemoryRoutines;
+  if (tuple_id) {
+    list = list.filter(r => r.tuple_id === tuple_id);
+  }
+
+  return [...list].sort((a, b) => {
     const dayDiff = (DAY_ORDER[a.day] ?? 99) - (DAY_ORDER[b.day] ?? 99);
     if (dayDiff !== 0) return dayDiff;
     return a.time_slot.localeCompare(b.time_slot);
@@ -48,6 +55,7 @@ export async function getAllRoutines(): Promise<RoutineItem[]> {
 export async function createRoutine(dto: CreateRoutineDTO): Promise<RoutineItem> {
   const newRoutine: RoutineItem = {
     id: crypto.randomUUID(),
+    tuple_id: dto.tuple_id || null,
     day: dto.day,
     subject: dto.subject || 'Mathematics',
     time_slot: dto.time_slot || '',
@@ -58,13 +66,13 @@ export async function createRoutine(dto: CreateRoutineDTO): Promise<RoutineItem>
     created_at: new Date().toISOString()
   };
 
-
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase
         .from('weekly_routines')
         .insert({
           id: newRoutine.id,
+          tuple_id: newRoutine.tuple_id,
           day: newRoutine.day,
           subject: newRoutine.subject,
           time_slot: newRoutine.time_slot,

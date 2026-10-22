@@ -8,7 +8,8 @@ export async function getTasks(req: Request, res: Response): Promise<void> {
   try {
     const status = req.query.status as string | undefined;
     const student_id = req.query.student_id as string | undefined;
-    const tasks = await taskService.getAllTasks({ status, student_id });
+    const tuple_id = req.query.tuple_id as string | undefined;
+    const tasks = await taskService.getAllTasks({ status, student_id, tuple_id });
     res.json({ success: true, count: tasks.length, data: tasks });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
@@ -31,7 +32,21 @@ export async function getTaskById(req: Request, res: Response): Promise<void> {
 
 export async function createTask(req: Request, res: Response): Promise<void> {
   try {
-    const { title, description, subject, priority, deadline, creator_role, initial_note } = req.body;
+    const { 
+      title, 
+      description, 
+      subject, 
+      priority, 
+      deadline, 
+      creator_role, 
+      initial_note,
+      tuple_id,
+      student_id,
+      student_name,
+      tutor_id,
+      tutor_name
+    } = req.body;
+
     if (!title || !title.trim()) {
       res.status(400).json({ success: false, message: 'Title is required' });
       return;
@@ -44,7 +59,12 @@ export async function createTask(req: Request, res: Response): Promise<void> {
       priority: priority || 'medium',
       deadline: deadline || null,
       creator_role: creator_role || 'student',
-      initial_note
+      initial_note,
+      tuple_id: tuple_id || null,
+      student_id,
+      student_name,
+      tutor_id,
+      tutor_name
     });
 
     // Notify corresponding student via email (action taken by tutor)
@@ -59,6 +79,7 @@ export async function createTask(req: Request, res: Response): Promise<void> {
       studentName: newTask.student_name,
       tutorId: newTask.tutor_id,
       tutorName: newTask.tutor_name,
+      tupleId: newTask.tuple_id,
       newStatus: newTask.status,
       details: newTask.description || 'New task assigned for study timetable.'
     }).catch(err => console.warn('⚠️ [Email Notification] error:', err.message));
@@ -111,6 +132,7 @@ export async function updateTaskStatus(req: Request, res: Response): Promise<voi
         studentName: finalTask.student_name,
         tutorId: finalTask.tutor_id,
         tutorName: finalTask.tutor_name,
+        tupleId: finalTask.tuple_id,
         newStatus: status,
         details: note || (question_text ? `Question: ${question_text}` : `Status transitioned to ${status}`)
       }).catch(err => console.warn('⚠️ [Email Notification] error:', err.message));
@@ -178,6 +200,7 @@ export async function uploadAttachment(req: Request, res: Response): Promise<voi
         studentName: refreshedTask.student_name,
         tutorId: refreshedTask.tutor_id,
         tutorName: refreshedTask.tutor_name,
+        tupleId: refreshedTask.tuple_id,
         details: attachmentType === 'screenshot' 
           ? `Uploaded problem screenshot (${fileName || 'image'}). ${attachmentContent}`
           : `Attached question: ${attachmentContent}`,
@@ -227,6 +250,7 @@ export async function addComment(req: Request, res: Response): Promise<void> {
         studentName: refreshedTask.student_name,
         tutorId: refreshedTask.tutor_id,
         tutorName: refreshedTask.tutor_name,
+        tupleId: refreshedTask.tuple_id,
         details: message.trim()
       }).catch(err => console.warn('⚠️ [Email Notification] error:', err.message));
     }
@@ -268,6 +292,7 @@ export async function deleteTask(req: Request, res: Response): Promise<void> {
       studentName: deleted.student_name,
       tutorId: deleted.tutor_id,
       tutorName: deleted.tutor_name,
+      tupleId: deleted.tuple_id,
       details: 'This task and all its associated problem screenshots were permanently deleted by the tutor.'
     }).catch(err => console.warn('⚠️ [Email Notification] error:', err.message));
 

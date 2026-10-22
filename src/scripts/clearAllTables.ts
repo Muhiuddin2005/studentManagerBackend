@@ -3,6 +3,7 @@ import { supabase, isSupabaseConfigured } from '../config/supabase.js';
 import { clearInMemoryTasks } from '../services/taskService.js';
 import { clearInMemoryRoutines } from '../services/routineService.js';
 import { clearInMemoryAuth } from '../services/authService.js';
+import { clearInMemoryTuples } from '../services/tupleService.js';
 
 dotenv.config();
 
@@ -17,10 +18,11 @@ export async function clearAllDatabaseTables(): Promise<{
   clearInMemoryTasks();
   clearInMemoryRoutines();
   clearInMemoryAuth();
-  console.log('✅ [Memory] Cleared all in-memory tasks, routines, users, and codes.');
+  clearInMemoryTuples();
+  console.log('✅ [Memory] Cleared all in-memory tasks, routines, users, tuples, and codes.');
 
   const results: Record<string, string> = {
-    in_memory: 'Cleared (tasks, routines, users, verification codes)',
+    in_memory: 'Cleared (tasks, routines, users, tuples, verification codes)',
   };
 
   // 2. Clear Supabase tables if configured and reachable
@@ -31,6 +33,7 @@ export async function clearAllDatabaseTables(): Promise<{
       'attachments',
       'tasks',
       'weekly_routines',
+      'tutor_student_pairs',
       'email_verification_codes',
       'app_users'
     ];

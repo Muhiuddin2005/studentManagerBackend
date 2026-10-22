@@ -30,6 +30,10 @@ export function clearInMemoryAuth(): void {
   inMemoryVerificationCodes = [];
 }
 
+export function getAllInMemoryUsers(): AppUser[] {
+  return inMemoryUsers;
+}
+
 /**
  * Generates a secure random 6-digit numeric verification code
  */

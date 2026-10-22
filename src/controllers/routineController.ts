@@ -2,9 +2,10 @@ import { Request, Response } from 'express';
 import * as routineService from '../services/routineService.js';
 import { Role, DayOfWeek } from '../types/index.js';
 
-export async function getRoutines(_req: Request, res: Response): Promise<void> {
+export async function getRoutines(req: Request, res: Response): Promise<void> {
   try {
-    const routines = await routineService.getAllRoutines();
+    const tuple_id = req.query.tuple_id as string | undefined;
+    const routines = await routineService.getAllRoutines(tuple_id);
     res.json({ success: true, count: routines.length, data: routines });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
@@ -13,7 +14,7 @@ export async function getRoutines(_req: Request, res: Response): Promise<void> {
 
 export async function createRoutine(req: Request, res: Response): Promise<void> {
   try {
-    const { day, subject, time_slot, topic, note, creator_role, creator_name } = req.body;
+    const { day, subject, time_slot, topic, note, creator_role, creator_name, tuple_id } = req.body;
 
     if (!day || !subject) {
       res.status(400).json({
@@ -33,6 +34,7 @@ export async function createRoutine(req: Request, res: Response): Promise<void> 
     }
 
     const routine = await routineService.createRoutine({
+      tuple_id: tuple_id || null,
       day: day as DayOfWeek,
       subject: subject.trim(),
       time_slot: time_slot || '',
