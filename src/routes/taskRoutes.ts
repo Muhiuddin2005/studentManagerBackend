@@ -10,5 +10,6 @@ router.post('/', taskController.createTask);
 router.patch('/:id/status', taskController.updateTaskStatus);
 router.post('/:id/attachments', uploadMiddleware.single('file'), taskController.uploadAttachment);
 router.post('/:id/comments', taskController.addComment);
+router.delete('/:id', taskController.deleteTask);
 
 export default router;

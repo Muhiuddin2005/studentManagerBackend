@@ -299,3 +299,69 @@ export async function addComment(
   }
   return comment;
 }
+
+/**
+ * Permanently deletes a task, cascading DB records and removing related storage files.
+ * Authority restricted strictly to tutors only.
+ */
+export async function deleteTask(taskId: string, actorRole: string): Promise<Task> {
+  if (actorRole !== 'tutor') {
+    throw new Error('Forbidden: Only tutors have the authority to delete tasks.');
+  }
+
+  // 1. Retrieve the task with its attachments first
+  const task = await getTaskById(taskId);
+  if (!task) {
+    throw new Error(`Task not found with ID: ${taskId}`);
+  }
+
+  // 2. Remove all related image files from Supabase Storage bucket
+  if (task.attachments && task.attachments.length > 0 && isSupabaseConfigured && supabase) {
+    const bucketName = process.env.STORAGE_BUCKET || 'problem-screenshots';
+    const filesToRemove: string[] = [];
+
+    for (const att of task.attachments) {
+      if (att.file_url) {
+        // Extract fileName from URL
+        const parts = att.file_url.split('/');
+        const extracted = parts[parts.length - 1]?.split('?')[0];
+        if (extracted) filesToRemove.push(extracted);
+      }
+      if (att.file_name && !filesToRemove.includes(att.file_name)) {
+        filesToRemove.push(att.file_name);
+      }
+    }
+
+    if (filesToRemove.length > 0) {
+      try {
+        const { error: storageErr } = await supabase.storage.from(bucketName).remove(filesToRemove);
+        if (storageErr) {
+          console.warn('⚠️ Supabase storage file removal error:', storageErr.message);
+        } else {
+          console.log(`🗑️ Successfully deleted ${filesToRemove.length} storage file(s) for task: ${taskId}`);
+        }
+      } catch (e: any) {
+        console.warn('⚠️ Exception deleting storage files for task:', e.message);
+      }
+    }
+  }
+
+  // 3. Delete from Supabase PostgreSQL (cascade deletes attachments, timeline_events, comments)
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error: dbErr } = await supabase.from('tasks').delete().eq('id', taskId);
+      if (dbErr) {
+        console.error('❌ Supabase error deleting task:', dbErr.message);
+        throw new Error(`Database error deleting task: ${dbErr.message}`);
+      }
+      console.log(`✅ [Supabase] Deleted task from database: ${taskId}`);
+    } catch (e: any) {
+      console.warn('⚠️ Supabase exception in deleteTask:', e.message);
+    }
+  }
+
+  // 4. Remove from in-memory fallback
+  inMemoryTasks = inMemoryTasks.filter(t => t.id !== taskId);
+
+  return task;
+}

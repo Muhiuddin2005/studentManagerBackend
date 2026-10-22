@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import * as taskService from '../services/taskService.js';
 import { saveAttachmentFile } from '../services/storageService.js';
 import { TaskStatus, Role } from '../types/index.js';
+import { sendTaskChangeNotificationEmail } from '../services/emailService.js';
 
 export async function getTasks(req: Request, res: Response): Promise<void> {
   try {
@@ -46,6 +47,22 @@ export async function createTask(req: Request, res: Response): Promise<void> {
       initial_note
     });
 
+    // Notify corresponding student via email (action taken by tutor)
+    sendTaskChangeNotificationEmail({
+      event: 'task_created',
+      taskTitle: newTask.title,
+      subject: newTask.subject,
+      priority: newTask.priority,
+      actorName: newTask.tutor_name || 'Tutor Axis',
+      actorRole: 'tutor',
+      studentId: newTask.student_id,
+      studentName: newTask.student_name,
+      tutorId: newTask.tutor_id,
+      tutorName: newTask.tutor_name,
+      newStatus: newTask.status,
+      details: newTask.description || 'New task assigned for study timetable.'
+    }).catch(err => console.warn('⚠️ [Email Notification] error:', err.message));
+
     res.status(201).json({ success: true, data: newTask });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
@@ -80,6 +97,25 @@ export async function updateTaskStatus(req: Request, res: Response): Promise<voi
     }
 
     const finalTask = await taskService.getTaskById(id);
+
+    // Notify corresponding recipient: student -> teacher only; tutor -> student only
+    if (finalTask) {
+      sendTaskChangeNotificationEmail({
+        event: 'status_updated',
+        taskTitle: finalTask.title,
+        subject: finalTask.subject,
+        priority: finalTask.priority,
+        actorName: (actor_role === 'student' ? (finalTask.student_name || 'Mohona') : (finalTask.tutor_name || 'Tutor Axis')),
+        actorRole: (actor_role as Role) || 'student',
+        studentId: finalTask.student_id,
+        studentName: finalTask.student_name,
+        tutorId: finalTask.tutor_id,
+        tutorName: finalTask.tutor_name,
+        newStatus: status,
+        details: note || (question_text ? `Question: ${question_text}` : `Status transitioned to ${status}`)
+      }).catch(err => console.warn('⚠️ [Email Notification] error:', err.message));
+    }
+
     res.json({ success: true, data: finalTask });
   } catch (error: any) {
     res.status(400).json({ success: false, message: error.message });
@@ -129,6 +165,26 @@ export async function uploadAttachment(req: Request, res: Response): Promise<voi
 
     const refreshedTask = await taskService.getTaskById(id);
 
+    // Notify corresponding recipient (student -> teacher only; tutor -> student only)
+    if (refreshedTask) {
+      sendTaskChangeNotificationEmail({
+        event: 'attachment_added',
+        taskTitle: refreshedTask.title,
+        subject: refreshedTask.subject,
+        priority: refreshedTask.priority,
+        actorName: (uploader_role === 'student' ? (refreshedTask.student_name || 'Mohona') : (refreshedTask.tutor_name || 'Tutor Axis')),
+        actorRole: (uploader_role as Role) || 'student',
+        studentId: refreshedTask.student_id,
+        studentName: refreshedTask.student_name,
+        tutorId: refreshedTask.tutor_id,
+        tutorName: refreshedTask.tutor_name,
+        details: attachmentType === 'screenshot' 
+          ? `Uploaded problem screenshot (${fileName || 'image'}). ${attachmentContent}`
+          : `Attached question: ${attachmentContent}`,
+        imageUrl: fileUrl
+      }).catch(err => console.warn('⚠️ [Email Notification] error:', err.message));
+    }
+
     res.status(201).json({
       success: true,
       message: 'Attachment saved successfully',
@@ -157,8 +213,76 @@ export async function addComment(req: Request, res: Response): Promise<void> {
     });
 
     const refreshedTask = await taskService.getTaskById(id);
+
+    // Notify corresponding recipient (student -> teacher only; tutor -> student only)
+    if (refreshedTask) {
+      sendTaskChangeNotificationEmail({
+        event: 'comment_added',
+        taskTitle: refreshedTask.title,
+        subject: refreshedTask.subject,
+        priority: refreshedTask.priority,
+        actorName: author_name || (author_role === 'tutor' ? 'Tutor Axis' : 'Mohona'),
+        actorRole: (author_role as Role) || 'student',
+        studentId: refreshedTask.student_id,
+        studentName: refreshedTask.student_name,
+        tutorId: refreshedTask.tutor_id,
+        tutorName: refreshedTask.tutor_name,
+        details: message.trim()
+      }).catch(err => console.warn('⚠️ [Email Notification] error:', err.message));
+    }
+
     res.status(201).json({ success: true, data: comment, task: refreshedTask });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
 }
+
+/**
+ * Delete a task and all associated storage files.
+ * Strictly restricted to tutors only.
+ */
+export async function deleteTask(req: Request, res: Response): Promise<void> {
+  try {
+    const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id) as string;
+    const actorRole = (req.body?.actor_role || req.query?.actor_role || req.headers['x-user-role'] || 'student') as string;
+
+    if (actorRole !== 'tutor') {
+      res.status(403).json({
+        success: false,
+        message: 'Forbidden: Only tutors have the authority to delete tasks.'
+      });
+      return;
+    }
+
+    const deleted = await taskService.deleteTask(id, actorRole);
+
+    // Notify corresponding student only (action taken by tutor)
+    sendTaskChangeNotificationEmail({
+      event: 'task_deleted',
+      taskTitle: deleted.title,
+      subject: deleted.subject,
+      priority: deleted.priority,
+      actorName: deleted.tutor_name || 'Tutor Axis',
+      actorRole: 'tutor',
+      studentId: deleted.student_id,
+      studentName: deleted.student_name,
+      tutorId: deleted.tutor_id,
+      tutorName: deleted.tutor_name,
+      details: 'This task and all its associated problem screenshots were permanently deleted by the tutor.'
+    }).catch(err => console.warn('⚠️ [Email Notification] error:', err.message));
+
+    res.json({
+      success: true,
+      message: 'Task and related images deleted successfully',
+      data: deleted
+    });
+  } catch (error: any) {
+    const isNotFound = error.message?.includes('not found');
+    const isForbidden = error.message?.includes('Only tutors') || error.message?.includes('Forbidden');
+    res.status(isForbidden ? 403 : isNotFound ? 404 : 500).json({
+      success: false,
+      message: error.message
+    });
+  }
+}
+

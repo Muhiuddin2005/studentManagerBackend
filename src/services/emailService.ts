@@ -181,3 +181,310 @@ export async function sendVerificationCodeEmail(
     throw new Error(`Failed to deliver verification email: ${err.message}`);
   }
 }
+
+export type TaskChangeEvent = 
+  | 'task_created' 
+  | 'status_updated' 
+  | 'attachment_added' 
+  | 'comment_added' 
+  | 'task_deleted';
+
+export interface TaskChangeNotificationPayload {
+  event: TaskChangeEvent;
+  taskTitle: string;
+  subject?: string;
+  priority?: string;
+  actorName: string;
+  actorRole: 'student' | 'tutor';
+  oldStatus?: string;
+  newStatus?: string;
+  details?: string;
+  imageUrl?: string | null;
+  studentId?: string;
+  studentName?: string;
+  studentEmail?: string;
+  tutorId?: string;
+  tutorName?: string;
+  tutorEmail?: string;
+}
+
+/**
+ * Resolves the recipient email based on who took action:
+ * - If STUDENT took action -> Notification is sent to the TEACHER / TUTOR ONLY.
+ * - If TUTOR took action -> Notification is sent to the STUDENT ONLY.
+ */
+export async function getTargetRecipientEmails(payload: TaskChangeNotificationPayload): Promise<string[]> {
+  const targetRole = payload.actorRole === 'student' ? 'tutor' : 'student';
+  const recipients = new Set<string>();
+
+  // 1. Direct email provided in payload
+  if (targetRole === 'tutor' && payload.tutorEmail) {
+    recipients.add(payload.tutorEmail.trim().toLowerCase());
+  }
+  if (targetRole === 'student' && payload.studentEmail) {
+    recipients.add(payload.studentEmail.trim().toLowerCase());
+  }
+
+  // 2. Query Supabase app_users for corresponding recipient
+  try {
+    const { supabase, isSupabaseConfigured } = await import('../config/supabase.js');
+    if (isSupabaseConfigured && supabase) {
+      // If student ID or Tutor ID available, query specific user
+      if (targetRole === 'student' && payload.studentId) {
+        const { data: specificStudent } = await supabase
+          .from('app_users')
+          .select('email')
+          .eq('id', payload.studentId)
+          .single();
+        if (specificStudent?.email) {
+          recipients.add(specificStudent.email.trim().toLowerCase());
+        }
+      } else if (targetRole === 'tutor' && payload.tutorId) {
+        const { data: specificTutor } = await supabase
+          .from('app_users')
+          .select('email')
+          .eq('id', payload.tutorId)
+          .single();
+        if (specificTutor?.email) {
+          recipients.add(specificTutor.email.trim().toLowerCase());
+        }
+      }
+
+      // If no specific recipient found yet, get all users matching the target role
+      if (recipients.size === 0) {
+        const { data: roleUsers } = await supabase
+          .from('app_users')
+          .select('email')
+          .eq('role', targetRole);
+
+        if (roleUsers) {
+          for (const u of roleUsers) {
+            if (u.email && u.email.includes('@')) {
+              recipients.add(u.email.trim().toLowerCase());
+            }
+          }
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn('⚠️ [Target Recipient] Error resolving recipient email:', err.message);
+  }
+
+  // 3. Fallbacks from environment variables
+  if (targetRole === 'tutor') {
+    if (recipients.size === 0) {
+      if (process.env.TUTOR_EMAIL) recipients.add(process.env.TUTOR_EMAIL.trim().toLowerCase());
+      if (process.env.SMTP_USER) recipients.add(process.env.SMTP_USER.trim().toLowerCase());
+    }
+  } else {
+    // targetRole === 'student'
+    if (recipients.size === 0 && process.env.STUDENT_EMAIL) {
+      recipients.add(process.env.STUDENT_EMAIL.trim().toLowerCase());
+    }
+  }
+
+  return Array.from(recipients);
+}
+
+// Compatibility alias
+export const getNotificationRecipients = async () => {
+  return getTargetRecipientEmails({
+    event: 'status_updated',
+    taskTitle: '',
+    actorName: '',
+    actorRole: 'student'
+  });
+};
+
+/**
+ * Builds responsive soft-pastel HTML email template for task modifications
+ */
+export function buildTaskChangeEmailTemplate(payload: TaskChangeNotificationPayload): string {
+  const { event, taskTitle, subject = 'General', priority = 'medium', actorName, actorRole, oldStatus, newStatus, details } = payload;
+
+  let eventBadge = '📌 Task Update';
+  let eventColor = '#6F65F1';
+  let eventBg = '#EEF0FD';
+  let eventIcon = '📋';
+  let actionTitle = 'Task Notification';
+
+  switch (event) {
+    case 'task_created':
+      eventBadge = '🆕 New Task Assigned';
+      eventColor = '#10B981';
+      eventBg = '#ECFDF5';
+      eventIcon = '🎯';
+      actionTitle = 'New Learning Task Assigned';
+      break;
+    case 'status_updated':
+      eventBadge = `🔄 Status Changed: ${newStatus?.toUpperCase() || ''}`;
+      eventColor = '#F59E0B';
+      eventBg = '#FEF3C7';
+      eventIcon = '⚡';
+      actionTitle = 'Timeline Status Updated';
+      break;
+    case 'attachment_added':
+      eventBadge = '📎 Problem Screenshot / Question Attached';
+      eventColor = '#8B5CF6';
+      eventBg = '#F3E8FF';
+      eventIcon = '📸';
+      actionTitle = 'New Homework Problem Attached';
+      break;
+    case 'comment_added':
+      eventBadge = '💬 Guidance / Feedback Added';
+      eventColor = '#3B82F6';
+      eventBg = '#EFF6FF';
+      eventIcon = '💡';
+      actionTitle = 'New Message in Task Dialogue';
+      break;
+    case 'task_deleted':
+      eventBadge = '🗑️ Task Deleted by Tutor';
+      eventColor = '#EF4444';
+      eventBg = '#FEE2E2';
+      eventIcon = '⚠️';
+      actionTitle = 'Task Removed from Timeline';
+      break;
+  }
+
+  const frontendUrl = process.env.FRONTEND_URL || 'https://muhiuddin-student-manager.vercel.app';
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${actionTitle}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F4F5F9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #F4F5F9; padding: 35px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 540px; background-color: #FFFFFF; border-radius: 24px; overflow: hidden; border: 1px solid #E2E6F0; box-shadow: 0 10px 30px rgba(111, 101, 241, 0.06);" cellspacing="0" cellpadding="0">
+          
+          <!-- Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #6F65F1 0%, #8F85FF 100%); padding: 30px 25px; text-align: center;">
+              <div style="display: inline-block; background: rgba(255, 255, 255, 0.2); border-radius: 50%; width: 44px; height: 44px; line-height: 44px; font-size: 22px; margin-bottom: 10px;">
+                ${eventIcon}
+              </div>
+              <h1 style="color: #FFFFFF; font-size: 22px; font-weight: 800; margin: 0; letter-spacing: -0.02em;">
+                TutorFlow Activity Alert
+              </h1>
+              <p style="color: #E0E2FF; font-size: 13px; margin: 4px 0 0 0; font-weight: 500;">
+                Home Tutor & Student Learning Notification
+              </p>
+            </td>
+          </tr>
+
+          <!-- Content -->
+          <tr>
+            <td style="padding: 30px 28px;">
+              <!-- Event Badge -->
+              <div style="display: inline-block; background-color: ${eventBg}; color: ${eventColor}; border: 1px solid ${eventColor}33; padding: 5px 14px; border-radius: 999px; font-size: 12px; font-weight: 800; margin-bottom: 18px;">
+                ${eventBadge}
+              </div>
+
+              <h2 style="font-size: 18px; font-weight: 800; color: #1D2132; margin: 0 0 12px 0;">
+                ${taskTitle}
+              </h2>
+
+              <!-- Details Card -->
+              <table role="presentation" width="100%" style="background-color: #F8F9FD; border-radius: 14px; border: 1px solid #ECEFF6; margin-bottom: 20px; font-size: 13px;" cellpadding="10" cellspacing="0">
+                <tr>
+                  <td style="color: #7A8297; width: 35%; border-bottom: 1px solid #ECEFF6; font-weight: 600;">Subject:</td>
+                  <td style="color: #1D2132; border-bottom: 1px solid #ECEFF6; font-weight: 700;">${subject}</td>
+                </tr>
+                <tr>
+                  <td style="color: #7A8297; border-bottom: 1px solid #ECEFF6; font-weight: 600;">Action By:</td>
+                  <td style="color: #1D2132; border-bottom: 1px solid #ECEFF6; font-weight: 700;">${actorName} (${actorRole})</td>
+                </tr>
+                ${newStatus ? `
+                <tr>
+                  <td style="color: #7A8297; border-bottom: 1px solid #ECEFF6; font-weight: 600;">Current Status:</td>
+                  <td style="color: #6F65F1; border-bottom: 1px solid #ECEFF6; font-weight: 800; text-transform: uppercase;">${newStatus}</td>
+                </tr>` : ''}
+                <tr>
+                  <td style="color: #7A8297; font-weight: 600;">Priority:</td>
+                  <td style="color: #1D2132; font-weight: 700; text-transform: capitalize;">${priority}</td>
+                </tr>
+              </table>
+
+              ${details ? `
+              <div style="background-color: #FAFBFD; border-left: 4px solid #6F65F1; padding: 12px 16px; border-radius: 0 12px 12px 0; margin-bottom: 24px;">
+                <div style="font-size: 11px; color: #8F97AC; font-weight: 700; text-transform: uppercase; margin-bottom: 4px;">Details / Message</div>
+                <div style="font-size: 13.5px; color: #2D334A; line-height: 1.5;">${details}</div>
+              </div>` : ''}
+
+              <!-- CTA Button -->
+              <div style="text-align: center; margin: 26px 0 10px 0;">
+                <a href="${frontendUrl}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #6F65F1 0%, #8F85FF 100%); color: #FFFFFF; text-decoration: none; font-size: 14px; font-weight: 700; padding: 12px 28px; border-radius: 12px; box-shadow: 0 4px 12px rgba(111, 101, 241, 0.25);">
+                  Open TutorFlow Dashboard →
+                </a>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #F8F9FD; padding: 16px 25px; text-align: center; border-top: 1px solid #ECEFF6;">
+              <p style="margin: 0; font-size: 11.5px; color: #9FA6BA;">
+                Automated alert dispatched to corresponding ${actorRole === 'student' ? 'Teacher / Tutor' : 'Student'}.
+              </p>
+              <p style="margin: 3px 0 0 0; font-size: 10.5px; color: #B5BAC9;">
+                © ${new Date().getFullYear()} TutorFlow. All rights reserved.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+}
+
+/**
+ * Sends a task modification notification email to the corresponding teacher or student only
+ */
+export async function sendTaskChangeNotificationEmail(
+  payload: TaskChangeNotificationPayload
+): Promise<void> {
+  const recipients = await getTargetRecipientEmails(payload);
+  const targetLabel = payload.actorRole === 'student' ? 'Teacher / Tutor' : 'Student';
+
+  if (recipients.length === 0) {
+    console.log(`ℹ️ [Nodemailer] No corresponding ${targetLabel} recipient email found to notify for action by ${payload.actorRole}.`);
+    return;
+  }
+
+  const mailer = getTransporter();
+  const user = process.env.SMTP_USER;
+  const fromAddress = process.env.SMTP_FROM || (user ? `"TutorFlow" <${user}>` : '"TutorFlow" <noreply@tutorflow.com>');
+
+  const eventPrefix = payload.event === 'task_created' ? '🎯 New Task'
+    : payload.event === 'status_updated' ? `🔄 Status: ${payload.newStatus}`
+    : payload.event === 'attachment_added' ? '📸 New Attachment'
+    : payload.event === 'comment_added' ? '💬 Guidance Note'
+    : '🗑️ Task Removed';
+
+  const subject = `[TutorFlow] ${eventPrefix} - ${payload.taskTitle}`;
+  const html = buildTaskChangeEmailTemplate(payload);
+  const text = `TutorFlow Notification: ${eventPrefix} on "${payload.taskTitle}". Action taken by ${payload.actorName} (${payload.actorRole}). Delivered to corresponding ${targetLabel}. Details: ${payload.details || 'None'}`;
+
+  try {
+    const info = await mailer.sendMail({
+      from: fromAddress,
+      to: recipients.join(', '),
+      subject,
+      text,
+      html
+    });
+
+    console.log(`✉️  [Nodemailer] Action by ${payload.actorRole} (${payload.actorName}): email sent to corresponding ${targetLabel} [${recipients.join(', ')}] (ID: ${info.messageId})`);
+  } catch (err: any) {
+    console.error('⚠️  [Nodemailer Error] Failed to send task notification email:', err.message);
+  }
+}

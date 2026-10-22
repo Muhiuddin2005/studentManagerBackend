@@ -53,6 +53,21 @@ export async function clearAllDatabaseTables(): Promise<{
         results[table] = `Skipped: ${err.message}`;
       }
     }
+
+    // 3. Clear Supabase Storage Bucket files
+    const bucketName = process.env.STORAGE_BUCKET || 'problem-screenshots';
+    try {
+      const { error: bucketError } = await supabase.storage.emptyBucket(bucketName);
+      if (bucketError) {
+        results[`storage_bucket_${bucketName}`] = `Notice: ${bucketError.message}`;
+        console.warn(`⚠️ [Supabase Storage] ${bucketName}:`, bucketError.message);
+      } else {
+        results[`storage_bucket_${bucketName}`] = 'All files removed (bucket emptied)';
+        console.log(`✅ [Supabase Storage] Emptied bucket: ${bucketName}`);
+      }
+    } catch (err: any) {
+      results[`storage_bucket_${bucketName}`] = `Skipped: ${err.message}`;
+    }
   } else {
     results.supabase = 'Skipped (no active Supabase instance connected)';
   }
