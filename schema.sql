@@ -100,7 +100,12 @@ CREATE TABLE IF NOT EXISTS weekly_routines (
 
 CREATE INDEX IF NOT EXISTS idx_weekly_routines_day ON weekly_routines(day);
 
--- 10. Supabase Storage Setup (Run in Supabase Dashboard SQL Editor or Storage tab)
--- INSERT INTO storage.buckets (id, name, public) VALUES ('problem-screenshots', 'problem-screenshots', true)
--- ON CONFLICT (id) DO NOTHING;
+-- 10. Disable RLS for unrestricted backend API access
+ALTER TABLE tasks DISABLE ROW LEVEL SECURITY;
+ALTER TABLE attachments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE timeline_events DISABLE ROW LEVEL SECURITY;
+ALTER TABLE task_comments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE app_users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE email_verification_codes DISABLE ROW LEVEL SECURITY;
+ALTER TABLE weekly_routines DISABLE ROW LEVEL SECURITY;
 

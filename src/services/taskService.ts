@@ -135,7 +135,9 @@ export async function createTask(taskData: CreateTaskDTO): Promise<Task> {
         .select()
         .single();
 
-      if (!insertError && insertedTask) {
+      if (insertError) {
+        console.error('❌ Supabase insert error in createTask:', insertError.message);
+      } else if (insertedTask) {
         await supabase.from('timeline_events').insert([{
           id: formattedTask.timeline_events![0].id,
           task_id: formattedTask.id,
@@ -149,7 +151,7 @@ export async function createTask(taskData: CreateTaskDTO): Promise<Task> {
         return { ...insertedTask, attachments: [], timeline_events: formattedTask.timeline_events, comments: [] } as Task;
       }
     } catch (err: any) {
-      console.warn('⚠️ Supabase error in createTask:', err.message);
+      console.warn('⚠️ Supabase exception in createTask:', err.message);
     }
   }
 
@@ -194,13 +196,15 @@ export async function updateTaskStatus(
         .select()
         .single();
 
-      if (!updateError) {
+      if (updateError) {
+        console.error('❌ Supabase error in updateTaskStatus:', updateError.message);
+      } else {
         await supabase.from('timeline_events').insert([timelineEvent]);
         const task = await getTaskById(taskId);
         if (task) return task;
       }
     } catch (err: any) {
-      console.warn('⚠️ Supabase error in updateTaskStatus:', err.message);
+      console.warn('⚠️ Supabase exception in updateTaskStatus:', err.message);
     }
   }
 

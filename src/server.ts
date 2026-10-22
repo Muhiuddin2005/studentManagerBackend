@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import taskRoutes from './routes/taskRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import routineRoutes from './routes/routineRoutes.js';
-import { isSupabaseConfigured } from './config/supabase.js';
+import { supabase, isSupabaseConfigured } from './config/supabase.js';
 import { ensureBucketPublic } from './services/storageService.js';
 
 dotenv.config();
@@ -43,11 +43,22 @@ app.get('/', (_req: Request, res: Response) => {
 });
 
 // Health check endpoint
-app.get('/api/health', (_req: Request, res: Response) => {
+app.get('/api/health', async (_req: Request, res: Response) => {
+  let databaseTablesReady = false;
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase.from('tasks').select('id').limit(1);
+      databaseTablesReady = !error;
+    } catch {
+      databaseTablesReady = false;
+    }
+  }
+
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     supabaseConnected: isSupabaseConfigured,
+    databaseTablesReady,
     environment: process.env.NODE_ENV || 'development'
   });
 });

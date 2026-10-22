@@ -20,7 +20,7 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
         fetch: (url, options = {}) => {
           return fetch(url, {
             ...options,
-            signal: AbortSignal.timeout(3000)
+            signal: AbortSignal.timeout(25000)
           });
         }
       }
