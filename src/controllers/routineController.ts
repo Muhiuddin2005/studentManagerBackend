@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import * as routineService from '../services/routineService.js';
+import { dispatchDailyRoutineBriefings } from '../services/routineScheduler.js';
 import { Role, DayOfWeek } from '../types/index.js';
 
 export async function getRoutines(req: Request, res: Response): Promise<void> {
@@ -75,3 +76,28 @@ export async function deleteRoutine(req: Request, res: Response): Promise<void> 
     res.status(400).json({ success: false, message: error.message });
   }
 }
+
+/**
+ * Controller endpoint to trigger the morning 6:00 AM daily routine email briefing
+ */
+export async function triggerDailyRoutineBriefing(req: Request, res: Response): Promise<void> {
+  try {
+    const { customDay, targetStudentEmail } = req.body || {};
+    const day = (customDay || req.query.day) as DayOfWeek | undefined;
+    const email = (targetStudentEmail || req.query.targetEmail) as string | undefined;
+
+    const result = await dispatchDailyRoutineBriefings({
+      customDay: day,
+      targetStudentEmail: email
+    });
+
+    res.json({
+      success: true,
+      message: `Daily morning routine briefing executed for ${result.day}. ${result.emailsSent} email(s) dispatched strictly to student(s).`,
+      data: result
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+

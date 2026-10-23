@@ -9,6 +9,7 @@ import routineRoutes from './routes/routineRoutes.js';
 import tupleRoutes from './routes/tupleRoutes.js';
 import { supabase, isSupabaseConfigured } from './config/supabase.js';
 import { ensureBucketPublic } from './services/storageService.js';
+import { initRoutineScheduler } from './services/routineScheduler.js';
 
 dotenv.config();
 
@@ -117,6 +118,9 @@ if (process.env.VERCEL !== '1') {
     console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
     console.log(`🗄️  Supabase status: ${isSupabaseConfigured ? 'LIVE CONNECTED' : 'LOCAL FALLBACK READY'}`);
     console.log(`===============================================`);
+    
+    // Initialize daily 6:00 AM student routine briefing cron
+    initRoutineScheduler();
   });
 }
 

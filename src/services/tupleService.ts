@@ -351,3 +351,32 @@ export async function getTupleById(tupleId: string): Promise<TutorStudentPair | 
 
   return inMemoryTuples.find(p => p.id === tupleId) || null;
 }
+
+/**
+ * Helper to fetch all accepted tuples in the system
+ */
+export async function getAllAcceptedTuples(): Promise<TutorStudentPair[]> {
+  let pairs: TutorStudentPair[] = [];
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('tutor_student_pairs')
+        .select('*')
+        .eq('status', 'accepted');
+
+      if (!error && data) {
+        pairs = data as TutorStudentPair[];
+      }
+    } catch (err: any) {
+      console.warn('⚠️ Supabase error in getAllAcceptedTuples:', err.message);
+    }
+  }
+
+  if (pairs.length === 0) {
+    pairs = inMemoryTuples.filter(p => p.status === 'accepted');
+  }
+
+  return pairs;
+}
+

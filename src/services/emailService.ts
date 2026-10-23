@@ -1,5 +1,6 @@
 import nodemailer, { Transporter } from 'nodemailer';
 import dotenv from 'dotenv';
+import { RoutineItem, DayOfWeek } from '../types/index.js';
 
 dotenv.config();
 
@@ -691,4 +692,171 @@ export async function sendTupleResponseEmail(params: {
     console.error('⚠️  [Nodemailer Error] Failed to send tuple response email:', err.message);
   }
 }
+
+export interface DailyRoutineEmailParams {
+  studentEmail: string;
+  studentName: string;
+  day: DayOfWeek;
+  dateStr: string;
+  routines: RoutineItem[];
+  tutorName?: string;
+}
+
+/**
+ * Sends automated 6:00 AM daily routine schedule email exclusively to the student
+ */
+export async function sendDailyRoutineEmail(params: DailyRoutineEmailParams): Promise<boolean> {
+  const { studentEmail, studentName, day, dateStr, routines, tutorName } = params;
+  if (!studentEmail || !studentEmail.includes('@')) return false;
+
+  const mailer = getTransporter();
+  const user = process.env.SMTP_USER;
+  const fromAddress = process.env.SMTP_FROM || (user ? `"TutorFlow" <${user}>` : '"TutorFlow" <noreply@tutorflow.com>');
+  const frontendUrl = process.env.FRONTEND_URL || 'https://muhiuddin-student-manager.vercel.app';
+
+  const routinesCount = routines.length;
+  const hasRoutines = routinesCount > 0;
+
+  // Build the list of routine items in HTML
+  const routinesListHtml = hasRoutines
+    ? routines.map((r) => `
+      <div style="background-color: #FFFFFF; border: 1.5px solid #E2E6F0; border-radius: 16px; padding: 16px 18px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+          <tr>
+            <td>
+              <span style="display: inline-block; background-color: #EEF0FD; color: #6F65F1; border: 1px solid #DCE0FA; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800;">
+                ⏰ ${r.time_slot || 'Flexible Slot'}
+              </span>
+              <span style="display: inline-block; background-color: #ECFDF5; color: #059669; border: 1px solid #A7F3D0; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; margin-left: 6px;">
+                📚 ${r.subject}
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding-top: 10px;">
+              <strong style="color: #1D2132; font-size: 15px; font-weight: 800;">${r.topic}</strong>
+              ${r.note ? `<p style="margin: 6px 0 0 0; color: #5C6478; font-size: 13px; line-height: 1.45; font-style: italic;">"${r.note}"</p>` : ''}
+              ${r.creator_name ? `<p style="margin: 6px 0 0 0; color: #9AA1B6; font-size: 11px; font-weight: 600;">Scheduled by: ${r.creator_name}</p>` : ''}
+            </td>
+          </tr>
+        </table>
+      </div>
+    `).join('')
+    : `
+      <div style="background-color: #FAFBFD; border: 1.5px dashed #DCE0FA; border-radius: 18px; padding: 26px 20px; text-align: center; margin-bottom: 16px;">
+        <div style="font-size: 32px; margin-bottom: 8px;">✨</div>
+        <h3 style="margin: 0 0 6px 0; color: #1D2132; font-size: 16px; font-weight: 800;">No Scheduled Classes Today</h3>
+        <p style="margin: 0; color: #5C6478; font-size: 13px; line-height: 1.5; max-width: 380px; margin-inline: auto;">
+          You don't have any fixed timetable sessions scheduled for ${day}. Use today to revise past topics, finish any open homework tasks, or enjoy a productive rest day!
+        </p>
+      </div>
+    `;
+
+  const subject = `🌅 Good Morning, ${studentName}! Your Study Routine for ${day} (${dateStr}) • TutorFlow`;
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F4F5F9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #F4F5F9; padding: 35px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 560px; background-color: #FFFFFF; border-radius: 24px; overflow: hidden; border: 1px solid #E2E6F0; box-shadow: 0 12px 35px rgba(111, 101, 241, 0.08);" cellspacing="0" cellpadding="0">
+          
+          <!-- Morning Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #6F65F1 0%, #8F85FF 100%); padding: 32px 25px; text-align: center;">
+              <div style="display: inline-block; background: rgba(255, 255, 255, 0.22); border-radius: 50%; width: 50px; height: 50px; line-height: 50px; font-size: 26px; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                🌅
+              </div>
+              <h1 style="color: #FFFFFF; font-size: 23px; font-weight: 800; margin: 0; letter-spacing: -0.02em;">
+                Good Morning, ${studentName}! ☀️
+              </h1>
+              <p style="color: #E0E2FF; font-size: 13.5px; margin: 6px 0 0 0; font-weight: 600;">
+                Daily 6:00 AM Study Briefing • ${day}, ${dateStr}
+              </p>
+            </td>
+          </tr>
+
+          <!-- Main Content -->
+          <tr>
+            <td style="padding: 28px 26px;">
+              <div style="display: inline-block; background-color: #EEF0FD; color: #6F65F1; border: 1px solid #DCE0FA; padding: 5px 14px; border-radius: 999px; font-size: 12px; font-weight: 800; margin-bottom: 16px;">
+                📅 Today's Schedule (${day})
+              </div>
+
+              <h2 style="font-size: 18px; font-weight: 800; color: #1D2132; margin: 0 0 8px 0;">
+                ${hasRoutines ? `You have ${routinesCount} study ${routinesCount === 1 ? 'session' : 'sessions'} planned today` : 'Ready to start your day?'}
+              </h2>
+              <p style="font-size: 13.5px; color: #5C6478; line-height: 1.6; margin: 0 0 20px 0;">
+                Here is your daily timetable summary prepared by TutorFlow. Check your upcoming sessions and tasks to stay focused and productive.
+              </p>
+
+              <!-- Routine Items List -->
+              <div style="margin-bottom: 24px;">
+                ${routinesListHtml}
+              </div>
+
+              <!-- Daily Motivation Chip -->
+              <div style="background-color: #FAF5FF; border: 1px solid #E9D5FF; border-radius: 14px; padding: 14px 16px; margin-bottom: 24px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                  <tr>
+                    <td width="30" valign="top" style="font-size: 18px;">💡</td>
+                    <td style="color: #6B21A8; font-size: 12.5px; line-height: 1.5; font-weight: 600;">
+                      <em>"Small daily improvements over time lead to stunning results. Start early, stay organized, and check off each step!"</em>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+
+              <!-- Call to Action -->
+              <div style="text-align: center; margin: 10px 0 15px 0;">
+                <a href="${frontendUrl}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #6F65F1 0%, #8F85FF 100%); color: #FFFFFF; text-decoration: none; font-size: 14px; font-weight: 700; padding: 13px 32px; border-radius: 12px; box-shadow: 0 4px 14px rgba(111, 101, 241, 0.3);">
+                  Open Study Dashboard & Start Work →
+                </a>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #F8F9FD; padding: 18px 25px; text-align: center; border-top: 1px solid #ECEFF6;">
+              <p style="margin: 0; font-size: 11.5px; color: #9AA1B6; line-height: 1.5;">
+                🔔 This automated briefing is sent directly and exclusively to you as a student every morning at 6:00 AM.
+              </p>
+              <p style="margin: 4px 0 0 0; font-size: 11px; color: #B9BFD0;">
+                TutorFlow • Home Tutor & Student Timeline Hub
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+
+  try {
+    await mailer.sendMail({
+      from: fromAddress,
+      to: studentEmail,
+      subject,
+      text: `Good morning ${studentName}! Here is your study routine for ${day} (${dateStr}): ${hasRoutines ? routines.map(r => `${r.time_slot}: ${r.subject} - ${r.topic}`).join('; ') : 'No classes scheduled today'}. Log into TutorFlow: ${frontendUrl}`,
+      html
+    });
+
+    console.log(`✉️  [Daily 6 AM Routine] Sent morning study schedule for ${day} (${routines.length} sessions) to student [${studentEmail}]`);
+    return true;
+  } catch (err: any) {
+    console.error(`⚠️  [Daily 6 AM Routine Error] Failed to send email to ${studentEmail}:`, err.message);
+    return false;
+  }
+}
+
 
