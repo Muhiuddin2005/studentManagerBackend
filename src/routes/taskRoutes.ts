@@ -7,6 +7,7 @@ const router: Router = Router();
 router.get('/', taskController.getTasks);
 router.get('/:id', taskController.getTaskById);
 router.post('/', taskController.createTask);
+router.put('/:id', taskController.updateTask);
 router.patch('/:id/status', taskController.updateTaskStatus);
 router.post('/:id/attachments', uploadMiddleware.single('file'), taskController.uploadAttachment);
 router.post('/:id/comments', taskController.addComment);

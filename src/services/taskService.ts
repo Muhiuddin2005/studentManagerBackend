@@ -8,6 +8,7 @@ import {
   TaskComment, 
   CreateTaskDTO, 
   UpdateStatusDTO, 
+  UpdateTaskDTO,
   AddAttachmentDTO, 
   AddCommentDTO 
 } from '../types/index.js';
@@ -226,6 +227,91 @@ export async function updateTaskStatus(
   inMemoryTasks[taskIndex].timeline_events!.push(timelineEvent);
 
   return inMemoryTasks[taskIndex];
+}
+
+export async function updateTask(taskId: string, dto: UpdateTaskDTO): Promise<Task> {
+  const now = new Date().toISOString();
+  const existing = await getTaskById(taskId);
+  if (!existing) {
+    throw new Error(`Task not found with ID: ${taskId}`);
+  }
+
+  const updatedFields: Partial<Task> = {
+    title: dto.title.trim(),
+    description: dto.description !== undefined ? dto.description.trim() : existing.description,
+    subject: dto.subject || existing.subject,
+    priority: dto.priority || existing.priority,
+    deadline: dto.deadline !== undefined ? dto.deadline : existing.deadline,
+    updated_at: now
+  };
+
+  const editTimelineEvent: TimelineEvent = {
+    id: crypto.randomUUID(),
+    task_id: taskId,
+    from_status: existing.status,
+    to_status: existing.status,
+    actor_role: dto.actor_role,
+    note: `Task details edited by ${dto.actor_name || dto.actor_role}`,
+    created_at: now
+  };
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('tasks')
+        .update({
+          title: updatedFields.title,
+          description: updatedFields.description,
+          subject: updatedFields.subject,
+          priority: updatedFields.priority,
+          deadline: updatedFields.deadline,
+          updated_at: now
+        })
+        .eq('id', taskId)
+        .select(`
+          *,
+          attachments (*),
+          timeline_events (*),
+          comments:task_comments (*)
+        `)
+        .single();
+
+      if (!error && data) {
+        // Record timeline event
+        try {
+          await supabase.from('timeline_events').insert([{
+            id: editTimelineEvent.id,
+            task_id: taskId,
+            from_status: editTimelineEvent.from_status,
+            to_status: editTimelineEvent.to_status,
+            actor_role: editTimelineEvent.actor_role,
+            note: editTimelineEvent.note,
+            created_at: now
+          }]);
+        } catch {
+          // timeline insert fallback
+        }
+
+        const fresh = await getTaskById(taskId);
+        return fresh || (data as Task);
+      }
+    } catch (err: any) {
+      console.warn('⚠️ Supabase error in updateTask:', err.message);
+    }
+  }
+
+  // In-memory fallback
+  const idx = inMemoryTasks.findIndex(t => t.id === taskId);
+  if (idx !== -1) {
+    inMemoryTasks[idx] = {
+      ...inMemoryTasks[idx],
+      ...updatedFields,
+      timeline_events: [editTimelineEvent, ...(inMemoryTasks[idx].timeline_events || [])]
+    };
+    return inMemoryTasks[idx];
+  }
+
+  return { ...existing, ...updatedFields };
 }
 
 export async function addAttachment(

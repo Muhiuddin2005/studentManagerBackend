@@ -188,7 +188,8 @@ export type TaskChangeEvent =
   | 'status_updated' 
   | 'attachment_added' 
   | 'comment_added' 
-  | 'task_deleted';
+  | 'task_deleted'
+  | 'task_updated';
 
 export interface TaskChangeNotificationPayload {
   event: TaskChangeEvent;
@@ -369,6 +370,13 @@ export function buildTaskChangeEmailTemplate(payload: TaskChangeNotificationPayl
       eventBg = '#FEE2E2';
       eventIcon = '⚠️';
       actionTitle = 'Task Removed from Timeline';
+      break;
+    case 'task_updated':
+      eventBadge = '✏️ Task Details Updated';
+      eventColor = '#6F65F1';
+      eventBg = '#EEF0FD';
+      eventIcon = '📝';
+      actionTitle = 'Study Task Details Updated';
       break;
   }
 

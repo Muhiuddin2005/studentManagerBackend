@@ -67,24 +67,90 @@ export async function createTask(req: Request, res: Response): Promise<void> {
       tutor_name
     });
 
-    // Notify corresponding student via email (action taken by tutor)
+    // Notify corresponding party via email:
+    // If student created -> notifies teacher/tutor
+    // If tutor created -> notifies student
+    const isCreatedByStudent = (creator_role === 'student');
+    const actorRole = isCreatedByStudent ? 'student' : 'tutor';
+    const actorName = isCreatedByStudent 
+      ? (student_name || newTask.student_name || 'Student')
+      : (tutor_name || newTask.tutor_name || 'Tutor Axis');
+
     sendTaskChangeNotificationEmail({
       event: 'task_created',
       taskTitle: newTask.title,
       subject: newTask.subject,
       priority: newTask.priority,
-      actorName: newTask.tutor_name || 'Tutor Axis',
-      actorRole: 'tutor',
+      actorName,
+      actorRole,
       studentId: newTask.student_id,
       studentName: newTask.student_name,
       tutorId: newTask.tutor_id,
       tutorName: newTask.tutor_name,
       tupleId: newTask.tuple_id,
       newStatus: newTask.status,
-      details: newTask.description || 'New task assigned for study timetable.'
+      details: newTask.description || `New study task "${newTask.title}" added by ${actorRole}.`
     }).catch(err => console.warn('⚠️ [Email Notification] error:', err.message));
 
     res.status(201).json({ success: true, data: newTask });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+/**
+ * Update task details (title, subject, description, priority, deadline).
+ * Both student and tutor are authorized to edit tasks.
+ */
+export async function updateTask(req: Request, res: Response): Promise<void> {
+  try {
+    const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id) as string;
+    const { 
+      title, 
+      description, 
+      subject, 
+      priority, 
+      deadline, 
+      actor_role, 
+      actor_name 
+    } = req.body;
+
+    if (!title || !title.trim()) {
+      res.status(400).json({ success: false, message: 'Title is required' });
+      return;
+    }
+
+    const role = (actor_role as Role) || (req.headers['x-user-role'] as Role) || 'student';
+
+    const updatedTask = await taskService.updateTask(id, {
+      title: title.trim(),
+      description,
+      subject,
+      priority,
+      deadline,
+      actor_role: role,
+      actor_name
+    });
+
+    // Notify the other party in the tuple
+    // If student updated -> notifies tutor
+    // If tutor updated -> notifies student
+    sendTaskChangeNotificationEmail({
+      event: 'task_updated',
+      taskTitle: updatedTask.title,
+      subject: updatedTask.subject,
+      priority: updatedTask.priority,
+      actorName: actor_name || (role === 'student' ? updatedTask.student_name : updatedTask.tutor_name),
+      actorRole: role,
+      studentId: updatedTask.student_id,
+      studentName: updatedTask.student_name,
+      tutorId: updatedTask.tutor_id,
+      tutorName: updatedTask.tutor_name,
+      tupleId: updatedTask.tuple_id,
+      details: `Task details were edited by ${actor_name || role}.`
+    }).catch(err => console.warn('⚠️ [Email Notification] error:', err.message));
+
+    res.json({ success: true, message: 'Task updated successfully', data: updatedTask });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }

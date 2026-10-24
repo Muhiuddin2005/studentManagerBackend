@@ -75,6 +75,16 @@ export interface UpdateStatusDTO {
   note?: string;
 }
 
+export interface UpdateTaskDTO {
+  title: string;
+  description?: string;
+  subject?: string;
+  priority?: Priority;
+  deadline?: string | null;
+  actor_role: Role;
+  actor_name?: string;
+}
+
 export interface AddAttachmentDTO {
   type: AttachmentType;
   content?: string;
